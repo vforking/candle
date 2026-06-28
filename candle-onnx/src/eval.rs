@@ -567,10 +567,7 @@ fn simple_eval_(
                 let auto_pad = get_attr_opt::<str>(node, "auto_pad")?;
                 match auto_pad {
                     None | Some("NOTSET") => (),
-                    Some(s) => {
-                        eprintln!("DEBUG AvgPool auto_pad={:?}", s);
-                        bail!("unsupported auto_pad {s}")
-                    }
+                    Some(s) => bail!("unsupported auto_pad {s}"),
                 };
                 if let Some(d) = dilations {
                     if d.iter().any(|&v| v != 1) {
@@ -638,13 +635,17 @@ fn simple_eval_(
             }
             "Squeeze" => {
                 let xs = get(&node.input[0])?;
-                let mut axes = if node.input.len() <= 1 {
-                    // contract all the dimensions with size 1 except the batch dim.
-                    xs.dims()
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(idx, &s)| if s == 1 && idx > 0 { Some(idx) } else { None })
-                        .collect()
+                let mut axes: Vec<usize> = if node.input.len() <= 1 {
+                    // Old opset: axes attribute, or squeezes all size-1 dims (except batch)
+                    if let Some(attr_axes) = get_attr_opt::<[i64]>(node, "axes")? {
+                        attr_axes.iter().map(|&i| xs.normalize_axis(i)).collect::<Result<Vec<_>>>()?
+                    } else {
+                        xs.dims()
+                            .iter()
+                            .enumerate()
+                            .flat_map(|(idx, &s)| if s == 1 && idx > 0 { Some(idx) } else { None })
+                            .collect()
+                    }
                 } else {
                     get(&node.input[1])?
                         .to_vec1::<i64>()?
